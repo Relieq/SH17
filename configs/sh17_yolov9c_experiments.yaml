@@ -1,0 +1,58 @@
+paths:
+  dataset_root: E:/data/SH17
+  models_root: E:/models
+  weights_dir: E:/models/yolov9
+  runs_root: E:/models/sh17_yolov9c_runs
+  artifact_root: D:/DS-AI/SH17/artifacts/sh17_yolov9c
+
+defaults:
+  seed: 0
+  epochs: 200
+  imgsz: 640
+  batch: -1
+  workers: 8
+  patience: 40
+  device: 0
+  pretrained: true
+  deterministic: true
+  save: true
+  save_period: 10
+
+experiments:
+  - name: yolov9c_baseline_640
+    weights: yolov9c.pt
+    imgsz: 640
+
+  - name: yolov9c_tuned_640
+    weights: yolov9c.pt
+    imgsz: 640
+    optimizer: AdamW
+    lr0: 0.001
+    lrf: 0.01
+    warmup_epochs: 5
+    cos_lr: true
+    close_mosaic: 10
+    patience: 30
+
+  - name: yolov9c_multiscale_960
+    weights: yolov9c.pt
+    imgsz: 960
+    multi_scale: true
+    optimizer: AdamW
+    lr0: 0.001
+    lrf: 0.01
+    warmup_epochs: 5
+    cos_lr: true
+    close_mosaic: 10
+
+  - name: yolov9c_oversample_minority_960
+    weights: yolov9c.pt
+    imgsz: 960
+    multi_scale: true
+    optimizer: AdamW
+    lr0: 0.001
+    lrf: 0.01
+    warmup_epochs: 5
+    cos_lr: true
+    close_mosaic: 10
+    use_oversampled_train_manifest: true

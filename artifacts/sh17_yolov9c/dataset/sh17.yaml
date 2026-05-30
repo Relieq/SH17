@@ -1,0 +1,22 @@
+path: /
+train: D:\DS-AI\SH17\artifacts\sh17_yolov9c\dataset\train_files_abs.txt
+val: D:\DS-AI\SH17\artifacts\sh17_yolov9c\dataset\val_files_abs.txt
+test: D:\DS-AI\SH17\artifacts\sh17_yolov9c\dataset\val_files_abs.txt
+names:
+  0: person
+  1: ear
+  2: ear-mufs
+  3: face
+  4: face-guard
+  5: face-mask
+  6: foot
+  7: tool
+  8: glasses
+  9: gloves
+  10: helmet
+  11: hands
+  12: head
+  13: medical-suit
+  14: shoes
+  15: safety-suit
+  16: safety-vest

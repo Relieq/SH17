@@ -1,8 +1,11 @@
 from pathlib import Path
 
 from scripts.sh17_yolov9c_pipeline import (
+    DatasetManifest,
     build_dataset_manifest,
     build_oversampled_train_manifest,
+    ensure_model_weights,
+    expand_experiments,
     load_experiment_config,
     pick_checkpoint_for_resume,
 )
@@ -111,3 +114,45 @@ def test_pick_checkpoint_for_resume_prefers_latest_epoch_checkpoint(tmp_path):
     selected = pick_checkpoint_for_resume(run_dir.parent)
 
     assert selected == epoch_7
+
+
+def test_ensure_model_weights_uses_requested_weight_name(tmp_path, monkeypatch):
+    requested = []
+
+    def fake_download(url, output_path):
+        requested.append((url, Path(output_path)))
+        Path(output_path).write_bytes(b"weights")
+
+    monkeypatch.setattr("scripts.sh17_yolov9c_pipeline.urllib.request.urlretrieve", fake_download)
+
+    path = ensure_model_weights(tmp_path, "yolov9s.pt")
+
+    assert path.name == "yolov9s.pt"
+    assert path.exists()
+    assert requested[0][0].endswith("/yolov9s.pt")
+
+
+def test_expand_experiments_keeps_model_specific_paths(tmp_path):
+    config = {
+        "paths": {
+            "dataset_root": Path("E:/data/SH17"),
+            "weights_dir": Path("E:/models/yolov9"),
+            "artifact_root": Path("D:/DS-AI/SH17/artifacts/sh17_yolov9s"),
+            "runs_root": Path("E:/models/sh17_yolov9s_runs"),
+        },
+        "defaults": {"epochs": 200},
+        "experiments": [{"name": "yolov9s_baseline_640", "weights": "yolov9s.pt"}],
+    }
+    manifest = DatasetManifest(
+        train_manifest=tmp_path / "train.txt",
+        val_manifest=tmp_path / "val.txt",
+        data_yaml=tmp_path / "sh17.yaml",
+        train_count=1,
+        val_count=1,
+    )
+
+    expanded = expand_experiments(config, manifest)
+
+    assert expanded[0]["weights"] == "yolov9s.pt"
+    assert expanded[0]["artifact_root"].endswith("sh17_yolov9s")
+    assert expanded[0]["runs_root"].endswith("sh17_yolov9s_runs")

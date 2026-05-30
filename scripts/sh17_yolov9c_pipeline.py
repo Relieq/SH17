@@ -29,7 +29,7 @@ SH17_NAMES = {
 }
 
 MINORITY_CLASS_IDS = {2, 4, 6, 10, 13, 16}
-YOLOV9C_URL = "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov9c.pt"
+ULTRALYTICS_WEIGHT_BASE_URL = "https://github.com/ultralytics/assets/releases/download/v8.2.0"
 
 
 @dataclass
@@ -154,13 +154,17 @@ def expand_experiments(config: dict[str, Any], dataset_manifest: DatasetManifest
     return experiments
 
 
-def ensure_yolov9c_weights(weights_dir: str | Path) -> Path:
+def ensure_model_weights(weights_dir: str | Path, weight_name: str) -> Path:
     weights_dir = Path(weights_dir)
     weights_dir.mkdir(parents=True, exist_ok=True)
-    weight_path = weights_dir / "yolov9c.pt"
+    weight_path = weights_dir / weight_name
     if not weight_path.exists():
-        urllib.request.urlretrieve(YOLOV9C_URL, weight_path)
+        urllib.request.urlretrieve(f"{ULTRALYTICS_WEIGHT_BASE_URL}/{weight_name}", weight_path)
     return weight_path
+
+
+def ensure_yolov9c_weights(weights_dir: str | Path) -> Path:
+    return ensure_model_weights(weights_dir, "yolov9c.pt")
 
 
 def pick_checkpoint_for_resume(run_dir: str | Path) -> Path | None:
@@ -231,7 +235,7 @@ def train_one_experiment(spec: dict[str, Any], run_root: str | Path) -> dict[str
     elif should_resume:
         weights_path = resume_checkpoint
     else:
-        weights_path = ensure_yolov9c_weights(spec["weights_dir"])
+        weights_path = ensure_model_weights(spec["weights_dir"], spec["weights"])
 
     data_path = spec["data"]
     if "train_manifest_override" in spec:

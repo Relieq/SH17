@@ -353,11 +353,7 @@ Các đề xuất dưới đây là hướng triển khai thực tế dựa trê
 | --- | --- |
 | Data cleaning và annotation audit cho minority classes | `face-guard`, `medical-suit`, `earmuffs`, `safety-vest`, `helmet`, `foot` có ít samples; kiểm tra nhãn sai/thiếu có thể tăng mAP rõ hơn so với chỉ đổi model. |
 | Class balancing bằng oversampling hoặc class-aware sampling | Giảm bias về các class nhiều mẫu như `hands`, `person`, `head`, `face`. |
-| Thu thập thêm dữ liệu cho `foot`, `tool`, `safety-vest`, `earmuffs`, `face-guard` | Đây là các class có performance thấp hoặc rất ít sample. |
 | Hard example mining | Tập trung vào ảnh có object nhỏ, occlusion, tool trong tay, helmet/head dễ nhầm, vest/background. |
-| Tạo split stratified theo class/object size | Đảm bảo train/test có phân phối minority classes và object sizes ổn định hơn. |
-| Cross-validation hoặc repeated splits | Paper chỉ nêu 80/20 train/test; cross-validation sẽ giảm phụ thuộc vào một random split. |
-| External validation rộng hơn | Paper chỉ validate cross-domain với Pictor-PPE 3 classes; nên thêm dataset/ảnh thực tế từ nhà máy nếu có. |
 
 ### 7.2. Cải tiến preprocessing
 
@@ -370,18 +366,7 @@ Các đề xuất dưới đây là hướng triển khai thực tế dựa trê
 | Normalization theo pretrained backbone | Paper không nêu normalization; cần kiểm tra code để đảm bảo đúng chuẩn model pretrained. |
 | Enhancement nhẹ cho low-light/industrial scenes | Có thể giúp PPE nhỏ hoặc màu sắc mờ, nhưng cần ablation để tránh làm lệch domain. |
 
-### 7.3. Cải tiến model
-
-| Hướng cải tiến | Lý do |
-| --- | --- |
-| Fine-tune YOLOv9-e kỹ hơn thay vì chỉ default hyperparameters | Baseline đã mạnh; hyperparameter tuning có khả năng cải thiện mà không đổi kiến trúc. |
-| Dùng detector có neck/head mạnh cho small objects | SH17 có 52% objects < 1% area theo diễn giải của paper; cần ưu tiên small-object detection. |
-| Two-stage hoặc cascade cho PPE nhỏ | Person/head/hands detector trước, rồi crop vùng liên quan để detect helmet/glasses/earmuffs/gloves/tools. |
-| Ensemble YOLOv9-e + model chuyên minority classes | Có thể tăng recall cho `foot`, `tool`, `safety-vest`, `earmuffs`, `face-guard`. |
-| Attention/feature pyramid cải tiến | Tăng khả năng giữ feature nhỏ và feature đa scale. |
-| Lightweight model riêng cho deployment | Nếu cần inference nhanh, YOLOv10-x có params thấp hơn YOLOv9-e nhưng mAP thấp hơn; cần trade-off accuracy/speed. |
-
-### 7.4. Cải tiến training strategy
+### 7.3 Cải tiến training strategy
 
 | Hướng cải tiến | Lý do |
 | --- | --- |
@@ -392,86 +377,3 @@ Các đề xuất dưới đây là hướng triển khai thực tế dựa trê
 | Label smoothing | Có thể giảm overconfidence trong classes dễ nhầm như helmet/head và vest/background. |
 | Copy-paste/cutmix có kiểm soát cho PPE nhỏ | Tăng exposure cho minority small objects; cần giữ realistic placement. |
 | Mixed precision + gradient accumulation | Cho phép tăng effective batch size hoặc input resolution khi bị giới hạn GPU. |
-
-### 7.5. Cải tiến evaluation
-
-| Hướng cải tiến | Lý do |
-| --- | --- |
-| Báo cáo confusion matrix trên SH17 test set | Paper chỉ show confusion matrix cho Pictor-PPE, không phải SH17. |
-| Per-class precision/recall/F1 | Paper có P/R/mAP per class cho YOLOv9-e, nhưng không có F1. |
-| Object-size breakdown: small/medium/large AP | SH17 có nhiều object nhỏ, cần metric riêng theo size để biết pipeline cải thiện đúng chỗ. |
-| Ablation study | Cần biết augmentation, tiling, balancing, loss, input size đóng góp bao nhiêu. |
-| External test set từ factory thật | Pictor-PPE chỉ có 3 mapped classes; cần đánh giá đầy đủ 17 classes ngoài domain. |
-| Calibration/error taxonomy | Phân loại lỗi: missed small object, class confusion, background FP, occlusion, truncation. |
-
-## 8. Đề xuất pipeline cải tiến cụ thể
-
-Mục tiêu: vượt YOLOv9-e baseline của paper, đặc biệt cải thiện minority/small-object classes mà không làm giảm mạnh các class lớn.
-
-### 8.1. Pipeline đề xuất
-
-| Bước | Thiết kế cụ thể |
-| --- | --- |
-| 1. Data loading | Load SH17 theo official train/test list từ GitHub. Tạo thêm train/val split stratified từ training set, giữ nguyên official test set để so sánh với paper. Nếu official val không có, dùng 10-15% train làm validation nhưng báo cáo rõ. |
-| 2. Preprocessing | Giữ ảnh gốc; áp dụng letterbox resize. Train ở 640 baseline và thêm experiment 960/1280 hoặc slicing cho ảnh lớn. Chuẩn hóa theo yêu cầu của pretrained model. |
-| 3. Augmentation | Baseline augmentation: mosaic 4 images + horizontal flip. Thêm ablation cho HSV/color jitter nhẹ, random scale, copy-paste cho PPE nhỏ, và hard-example oversampling. Tắt/giảm mosaic ở cuối training nếu framework hỗ trợ để ổn định localization. |
-| 4. Model | Baseline model: YOLOv9-e pretrained MS-COCO. Thêm branch thí nghiệm: YOLOv9-e + higher input size/tiling; và optional cascade crop model cho head/hands/feet/tools. |
-| 5. Loss function | Bắt đầu với default loss của implementation. Thử class-balanced/focal-style classification loss hoặc reweighting cho minority classes; ghi rõ exact loss trong experiment log. |
-| 6. Optimizer | Dùng optimizer mặc định của framework làm baseline reproducible. Sau đó tune optimizer/LR/weight decay có kiểm soát; paper không nêu nên cần log đầy đủ. |
-| 7. Scheduler | Warmup + cosine/one-cycle scheduler; dùng validation mAP50-95 để chọn best checkpoint. Thử early stopping vì paper nói YOLOv9-e plateau khoảng epoch 170. |
-| 8. Training loop | Mixed precision, gradient accumulation nếu input size cao. Class-aware sampling hoặc oversampling cho minority classes. Train 200 epochs để so baseline, đồng thời lưu best epoch theo validation mAP50-95. |
-| 9. Evaluation | Evaluate trên official SH17 test set: P, R, mAP@50, mAP50-95, per-class metrics, confusion matrix, AP theo object size, latency/FPS, params/FLOPs nếu deployment quan trọng. Evaluate thêm Pictor-PPE để đo generalization. |
-| 10. Experiment tracking | Log dataset version, split files, augmentation config, input size, pretrained checkpoint, optimizer, LR, scheduler, batch size, seed, GPU, best epoch, metrics, confusion matrix, qualitative failure cases. Dùng MLflow/W&B/TensorBoard hoặc CSV + artifacts. |
-
-### 8.2. Vì sao pipeline này có khả năng vượt baseline?
-
-- Paper baseline dùng fixed image size 640, trong khi SH17 có rất nhiều object nhỏ. Tăng resolution hoặc slicing có thể giúp classes như `earmuffs`, `glasses`, `tools`, `foot`.
-- Paper có imbalance mạnh; class-aware sampling/focal/class-balanced loss nhắm trực tiếp vào minority classes.
-- Paper không nêu optimizer/LR/scheduler exact; tuning có kiểm soát có thể cải thiện mà vẫn giữ YOLOv9-e.
-- Paper nói mAP plateau khoảng 170 epochs; scheduler/early stopping/best checkpoint có thể tăng hiệu quả training.
-- Evaluation mở rộng bằng confusion matrix SH17 và AP theo object size giúp phát hiện đúng nguyên nhân lỗi, thay vì chỉ nhìn overall mAP.
-
-## 9. Các câu hỏi còn thiếu cần kiểm tra lại
-
-Các điểm paper thiếu hoặc chưa đủ chi tiết để tái lập 100%:
-
-| Thiếu thông tin | Ghi chú |
-| --- | --- |
-| Validation split | Paper chỉ nêu 80% train, 20% test; không thấy validation split riêng. |
-| Train image count cụ thể | Paper nêu tổng 8,099 images và test 1,620 images trong Table III; không nêu trực tiếp số train images. |
-| Exact batch size từng model | Paper chỉ nói từ 128 cho nano models tới 32 cho bigger-scale models. |
-| Optimizer | Not specified in paper. |
-| Learning rate | Not specified in paper. |
-| LR scheduler/warmup | Not specified in paper. |
-| Weight decay | Not specified in paper. |
-| Loss function trong experiment | Not specified in paper. Section II-B có mô tả loss của YOLOv8 nói chung, nhưng không có bảng loss cho từng experiment. |
-| Seed/random split details | Not specified in paper. |
-| Exact preprocessing pipeline | Paper chỉ nêu fixed image size 640; không nêu normalization, letterbox, padding, crop, color conversion. |
-| Exact augmentation parameters | Paper chỉ nêu mosaic 4 images và horizontal flipping; không nêu probability/scale/color params. |
-| Inference confidence threshold/NMS IoU threshold | Not specified in paper. |
-| FPS/inference time | Not specified in paper. |
-| FLOPs | Not specified in paper. |
-| Confusion matrix trên SH17 | Not specified in paper; chỉ có confusion matrix trên Pictor-PPE. |
-| Annotation file format | Paper nêu annotation tools và metadata fields, nhưng không nêu chính xác annotation format trong text. |
-
-## 10. Yêu cầu trích dẫn
-
-| Số liệu / ý chính | Vị trí trong paper |
-| --- | --- |
-| 8,099 images; 75,994 instances; 17 classes | Abstract page 1; Section I page 2; Table I page 3; Conclusion page 14 |
-| Dataset source Pexels, queries, duplicate/empty filtering | Section III-A, page 5 |
-| Annotation process and tools | Section III-B, pages 5-6 |
-| Class list and instance counts | Table II, page 7 |
-| Object size distribution and imbalance | Section III-D, page 8; Figure 2, page 8 |
-| Evaluation metrics P/R/mAP/IoU definitions | Section III-E, pages 8-9 |
-| Train setup: 80/20 split, MS-COCO transfer learning, 200 epochs, input 640, batch size range, augmentation, NMS | Section IV, page 9 |
-| Model benchmark results | Table III, page 10 |
-| YOLOv9-e best and plateau around epoch 170 | Section IV, page 9; Figure 3, page 11 |
-| YOLOv9-e per-class results | Table IV, page 10 |
-| Cross-domain Pictor-PPE mapping/results | Section IV-A, pages 11-12; Table V, page 12 |
-| Pictor-PPE confusion matrix | Figure 4, page 12 |
-| Qualitative errors among models | Section IV, pages 9-11; Figure 5, page 13 |
-| Metadata fields | Appendix A, Table VI, page 18 |
-| Person demographic tags | Appendix B, Table VII, page 18 |
-| Train/test instance split | Appendix C, Table VIII, page 19 |
-

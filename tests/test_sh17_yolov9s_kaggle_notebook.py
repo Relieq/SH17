@@ -31,3 +31,15 @@ def test_kaggle_notebook_uses_fixed_safe_batch_sizes():
     assert '"batch": -1' not in sources
     assert '"batch": 8' in sources
     assert '"batch": 4' in sources
+
+
+def test_kaggle_notebook_targets_both_t4_gpus():
+    notebook_path = Path("SH17_yolov9s_kaggle.ipynb")
+    payload = json.loads(notebook_path.read_text(encoding="utf-8"))
+    sources = "\n".join(
+        "".join(cell.get("source", []))
+        for cell in payload["cells"]
+    )
+
+    assert '"device": "0,1"' in sources
+    assert '"device": 0' not in sources

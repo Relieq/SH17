@@ -1,0 +1,185 @@
+import json
+from pathlib import Path
+
+
+def _notebook_sources():
+    notebook_path = Path("SH17_picodet_l_paddledet_portable.ipynb")
+    payload = json.loads(notebook_path.read_text(encoding="utf-8"))
+    return "\n".join("".join(cell.get("source", [])) for cell in payload["cells"])
+
+
+def test_picodet_notebook_contains_expected_experiments_and_class_order():
+    sources = _notebook_sources()
+
+    assert "PP-PicoDet-L" in sources
+    assert "picodet_l_320_baseline" in sources
+    assert "picodet_l_416_scale" in sources
+    assert "picodet_l_640_scale" in sources
+    assert "picodet_l_640_oversample_minority" in sources
+    assert "PaddleDetection" in sources
+    assert "SSDLite320" not in sources
+    assert "create_model" not in sources
+    assert "YOLO(" not in sources
+
+    expected_class_order = [
+        "person",
+        "ear",
+        "ear-mufs",
+        "face",
+        "face-guard",
+        "face-mask",
+        "foot",
+        "tool",
+        "glasses",
+        "gloves",
+        "helmet",
+        "hands",
+        "head",
+        "medical-suit",
+        "shoes",
+        "safety-suit",
+        "safety-vest",
+    ]
+    for class_name in expected_class_order:
+        assert f'"{class_name}"' in sources
+
+
+def test_picodet_notebook_normalizes_data_root_before_manifest_paths():
+    sources = _notebook_sources()
+
+    assert 'DATA_ROOT = os.environ.get("SH17_DATA_ROOT", PROJECT_ROOT)' in sources
+    assert "DATA_ROOT = Path(DATA_ROOT).expanduser()" in sources
+    assert 'TRAIN_MANIFEST = Path(os.environ.get("SH17_TRAIN_MANIFEST", DATA_ROOT / "train_files.txt"))' in sources
+
+
+def test_picodet_notebook_embeds_helper_for_kaggle_runs_without_extra_files():
+    sources = _notebook_sources()
+
+    assert "SELF_CONTAINED_HELPER_SOURCE" in sources
+    assert 'Path("/kaggle/working")' in sources
+    assert 'generated_path.write_text(SELF_CONTAINED_HELPER_SOURCE, encoding="utf-8")' in sources
+    assert "Cannot find scripts/sh17_picodet_dataset.py" not in sources
+
+
+def test_picodet_notebook_uses_paddledetection_train_cli_without_output_dir():
+    sources = _notebook_sources()
+
+    assert '"--output_dir"' not in sources
+    assert '"tools/train.py"' in sources
+    assert "last_checkpoint_base_path" in sources
+    assert 'command.extend(["-r", str(last_checkpoint)])' in sources
+
+
+def test_picodet_helper_converts_yolo_manifests_to_coco_and_oversamples(tmp_path):
+    from scripts.sh17_picodet_dataset import (
+        CLASS_NAMES,
+        MINORITY_CLASS_IDS_ZERO_BASED,
+        build_oversampled_coco,
+        convert_manifest_to_coco,
+    )
+
+    data_root = tmp_path / "sh17"
+    image_dir = data_root / "images"
+    label_dir = data_root / "labels"
+    image_dir.mkdir(parents=True)
+    label_dir.mkdir()
+
+    train_lines = []
+    for index in range(8):
+        image_path = image_dir / f"train_{index}.jpg"
+        image_path.write_bytes(b"fake")
+        train_lines.append(f"images/{image_path.name}")
+        class_id = 2 if index == 0 else 0
+        (label_dir / f"train_{index}.txt").write_text(
+            f"{class_id} 0.5 0.5 0.2 0.4\n",
+            encoding="utf-8",
+        )
+
+    val_lines = []
+    for index in range(4):
+        image_path = image_dir / f"val_{index}.jpg"
+        image_path.write_bytes(b"fake")
+        val_lines.append(f"images/{image_path.name}")
+        (label_dir / f"val_{index}.txt").write_text(
+            "10 0.5 0.5 0.1 0.2\n",
+            encoding="utf-8",
+        )
+
+    train_manifest = data_root / "train_files.txt"
+    val_manifest = data_root / "val_files.txt"
+    train_manifest.write_text("\n".join(train_lines), encoding="utf-8")
+    val_manifest.write_text("\n".join(val_lines), encoding="utf-8")
+
+    annotations_dir = tmp_path / "annotations"
+    train_json = annotations_dir / "instances_train.json"
+    val_json = annotations_dir / "instances_val.json"
+    resolver = lambda _: (100, 200)
+
+    train_stats = convert_manifest_to_coco(
+        manifest_path=train_manifest,
+        dataset_root=data_root,
+        output_json=train_json,
+        image_size_resolver=resolver,
+    )
+    val_stats = convert_manifest_to_coco(
+        manifest_path=val_manifest,
+        dataset_root=data_root,
+        output_json=val_json,
+        image_size_resolver=resolver,
+    )
+
+    train_payload = json.loads(train_json.read_text(encoding="utf-8"))
+    val_payload = json.loads(val_json.read_text(encoding="utf-8"))
+
+    assert train_stats["images"] == 8
+    assert train_stats["instances"] == 8
+    assert val_stats["images"] == 4
+    assert len(train_payload["categories"]) == len(CLASS_NAMES) == 17
+    assert train_payload["annotations"][0]["bbox"] == [40.0, 60.0, 20.0, 80.0]
+    assert train_payload["annotations"][0]["category_id"] == 3
+    assert val_payload["annotations"][0]["category_id"] == 11
+
+    oversampled_json = annotations_dir / "instances_train_oversampled.json"
+    oversampled_stats = build_oversampled_coco(
+        train_json=train_json,
+        output_json=oversampled_json,
+        minority_class_ids_zero_based=MINORITY_CLASS_IDS_ZERO_BASED,
+        repeat_factor=3,
+    )
+    oversampled_payload = json.loads(oversampled_json.read_text(encoding="utf-8"))
+
+    assert oversampled_stats["images"] == 10
+    assert oversampled_stats["instances"] == 10
+    assert len({image["id"] for image in oversampled_payload["images"]}) == 10
+    assert len({ann["id"] for ann in oversampled_payload["annotations"]}) == 10
+
+
+def test_picodet_config_generation_uses_sh17_dataset_and_variant_settings(tmp_path):
+    from scripts.sh17_picodet_dataset import build_picodet_config_text, picodet_experiments
+
+    experiments = {experiment.name: experiment for experiment in picodet_experiments()}
+    assert {
+        name: experiment.config_file_name
+        for name, experiment in experiments.items()
+    } == {
+        "picodet_l_320_baseline": "picodet_l_320_sh17.yml",
+        "picodet_l_416_scale": "picodet_l_416_sh17.yml",
+        "picodet_l_640_scale": "picodet_l_640_sh17.yml",
+        "picodet_l_640_oversample_minority": "picodet_l_640_oversample_sh17.yml",
+    }
+    config_text = build_picodet_config_text(
+        experiment=experiments["picodet_l_640_oversample_minority"],
+        dataset_dir=tmp_path / "dataset",
+        output_dir=tmp_path / "runs",
+        paddledet_root=tmp_path / "PaddleDetection",
+    )
+
+    assert "picodet_l_640_coco_lcnet.yml" in config_text
+    assert "num_classes: 17" in config_text
+    assert "epoch: 200" in config_text
+    assert "use_ema: true" in config_text
+    assert "snapshot_epoch: 10" in config_text
+    assert f"save_dir: {(tmp_path / 'runs' / 'picodet_l_640_oversample_minority').as_posix()}" in config_text
+    assert "base_lr: 0.06" in config_text
+    assert "batch_size: 12" in config_text
+    assert "instances_train_oversampled.json" in config_text

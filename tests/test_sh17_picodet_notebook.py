@@ -1,10 +1,15 @@
+import ast
 import json
 from pathlib import Path
 
 
-def _notebook_sources():
+def _notebook_payload():
     notebook_path = Path("SH17_picodet_l_paddledet_portable.ipynb")
-    payload = json.loads(notebook_path.read_text(encoding="utf-8"))
+    return json.loads(notebook_path.read_text(encoding="utf-8"))
+
+
+def _notebook_sources():
+    payload = _notebook_payload()
     return "\n".join("".join(cell.get("source", [])) for cell in payload["cells"])
 
 
@@ -47,18 +52,25 @@ def test_picodet_notebook_contains_expected_experiments_and_class_order():
 def test_picodet_notebook_normalizes_data_root_before_manifest_paths():
     sources = _notebook_sources()
 
-    assert 'DATA_ROOT = os.environ.get("SH17_DATA_ROOT", PROJECT_ROOT)' in sources
+    assert "DATA_ROOT_CANDIDATES = _data_root_candidates()" in sources
+    assert "def _resolve_data_root()" in sources
+    assert 'PROJECT_ROOT / "datasets" / "sh17-dataset-for-ppe-detection"' in sources
+    assert 'PROJECT_ROOT / "datasets" / "mugheesahmad" / "sh17-dataset-for-ppe-detection"' in sources
     assert "DATA_ROOT = Path(DATA_ROOT).expanduser()" in sources
     assert 'TRAIN_MANIFEST = Path(os.environ.get("SH17_TRAIN_MANIFEST", DATA_ROOT / "train_files.txt"))' in sources
+    assert "Missing dataset manifests." in sources
+    assert "Set DATA_ROOT to the SH17 dataset folder" in sources
 
 
-def test_picodet_notebook_embeds_helper_for_kaggle_runs_without_extra_files():
+def test_picodet_notebook_imports_helper_from_project_scripts():
     sources = _notebook_sources()
 
-    assert "SELF_CONTAINED_HELPER_SOURCE" in sources
-    assert 'Path("/kaggle/working")' in sources
-    assert 'generated_path.write_text(SELF_CONTAINED_HELPER_SOURCE, encoding="utf-8")' in sources
-    assert "Cannot find scripts/sh17_picodet_dataset.py" not in sources
+    assert "SELF_CONTAINED_HELPER_SOURCE" not in sources
+    assert "def _helper_roots()" in sources
+    assert 'PROJECT_ROOT / "SH17"' in sources
+    assert 'root / "scripts" / "sh17_picodet_dataset.py"' in sources
+    assert "Run this notebook from the SH17 project folder" in sources
+    assert "from scripts.sh17_picodet_dataset import" in sources
 
 
 def test_picodet_notebook_uses_paddledetection_train_cli_without_output_dir():
@@ -68,6 +80,43 @@ def test_picodet_notebook_uses_paddledetection_train_cli_without_output_dir():
     assert '"tools/train.py"' in sources
     assert "last_checkpoint_base_path" in sources
     assert 'command.extend(["-r", str(last_checkpoint)])' in sources
+
+
+def test_picodet_notebook_has_local_friendly_dependency_setup():
+    sources = _notebook_sources()
+
+    assert "INSTALL_PADDLEDET_REQUIREMENTS = True" in sources
+    assert 'BOOTSTRAP_PIP_PACKAGES = ["setuptools<81", "wheel"]' in sources
+    assert "PADDLE_INSTALL_PACKAGE" in sources
+    assert "AUTO_REINSTALL_PADDLE_PACKAGE = True" in sources
+    assert "def ensure_paddle_package()" in sources
+    assert "paddlepaddle-gpu" in sources
+    assert "pip\", \"uninstall\", \"-y\"" in sources
+    assert "pkg_resources" in sources
+    assert "SKLEARN_ALLOW_DEPRECATED_SKLEARN_PACKAGE_INSTALL" in sources
+    assert 'run_command([sys.executable, "-m", "pip", "install", *BOOTSTRAP_PIP_PACKAGES], env=pip_env)' in sources
+    assert 'run_command([sys.executable, "-m", "pip", "install", "-r", str(requirements)], env=pip_env)' in sources
+    assert '"pip", "install", "-q", "-r"' not in sources
+
+
+def test_picodet_notebook_can_fallback_to_cpu_when_gpu_is_unavailable():
+    sources = _notebook_sources()
+
+    assert "ALLOW_CPU_FALLBACK = True" in sources
+    assert "if USE_GPU and \"gpu\" not in device.lower():" in sources
+    assert "if ALLOW_CPU_FALLBACK:" in sources
+    assert 'paddle.set_device("cpu")' in sources
+    assert "Falling back to CPU" in sources
+
+
+def test_picodet_notebook_code_cells_are_valid_python():
+    payload = _notebook_payload()
+
+    for index, cell in enumerate(payload["cells"]):
+        if cell.get("cell_type") != "code":
+            continue
+        source = "".join(cell.get("source", []))
+        ast.parse(source, filename=f"SH17_picodet_l_paddledet_portable.ipynb cell {index}")
 
 
 def test_picodet_helper_converts_yolo_manifests_to_coco_and_oversamples(tmp_path):
@@ -178,8 +227,18 @@ def test_picodet_config_generation_uses_sh17_dataset_and_variant_settings(tmp_pa
     assert "num_classes: 17" in config_text
     assert "epoch: 200" in config_text
     assert "use_ema: true" in config_text
+    assert "use_gpu: true" in config_text
     assert "snapshot_epoch: 10" in config_text
     assert f"save_dir: {(tmp_path / 'runs' / 'picodet_l_640_oversample_minority').as_posix()}" in config_text
     assert "base_lr: 0.06" in config_text
     assert "batch_size: 12" in config_text
     assert "instances_train_oversampled.json" in config_text
+
+    cpu_config_text = build_picodet_config_text(
+        experiment=experiments["picodet_l_320_baseline"],
+        dataset_dir=tmp_path / "dataset",
+        output_dir=tmp_path / "runs",
+        paddledet_root=tmp_path / "PaddleDetection",
+        use_gpu=False,
+    )
+    assert "use_gpu: false" in cpu_config_text

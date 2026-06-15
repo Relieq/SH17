@@ -295,13 +295,16 @@ def build_picodet_config_text(
     output_dir: Path,
     paddledet_root: Path,
     epochs: int = 200,
+    use_gpu: bool = True,
 ) -> str:
     official_config = paddledet_root / "configs" / "picodet" / experiment.official_config_name
     annotations_dir = output_dir.parent / "dataset" / "annotations"
+    use_gpu_value = "true" if use_gpu else "false"
     return f"""_BASE_: ["{_path_for_yaml(official_config)}"]
 
 metric: COCO
 num_classes: 17
+use_gpu: {use_gpu_value}
 use_ema: true
 epoch: {epochs}
 snapshot_epoch: 10
@@ -351,6 +354,7 @@ def write_picodet_configs(
     output_dir: Path,
     paddledet_root: Path,
     epochs: int = 200,
+    use_gpu: bool = True,
 ) -> list[Path]:
     config_dir.mkdir(parents=True, exist_ok=True)
     config_paths = []
@@ -363,6 +367,7 @@ def write_picodet_configs(
                 output_dir=output_dir,
                 paddledet_root=paddledet_root,
                 epochs=epochs,
+                use_gpu=use_gpu,
             ),
             encoding="utf-8",
         )

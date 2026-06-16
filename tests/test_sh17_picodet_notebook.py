@@ -90,6 +90,13 @@ def test_picodet_notebook_has_local_friendly_dependency_setup():
 
     assert "INSTALL_PADDLEDET_REQUIREMENTS = _env_flag" in sources
     assert 'BOOTSTRAP_PIP_PACKAGES = ["setuptools<81", "wheel"]' in sources
+    assert "PADDLEDET_REQUIREMENTS_ONLY_BINARY = _env_flag" in sources
+    assert "def ensure_supported_requirements_python()" in sources
+    assert "sys.version_info >= (3, 13)" in sources
+    assert "PaddleDetection requirements pin numpy<2.0" in sources
+    assert "def paddledet_requirements_install_command(requirements)" in sources
+    assert 'PADDLEDET_BINARY_ONLY_PACKAGES = ["numpy", "scipy", "opencv-python", "pycocotools", "shapely"]' in sources
+    assert '"--only-binary=" + ",".join(PADDLEDET_BINARY_ONLY_PACKAGES)' in sources
     assert "PADDLE_INSTALL_PACKAGE" in sources
     assert "AUTO_REINSTALL_PADDLE_PACKAGE = _env_flag" in sources
     assert "def ensure_paddle_package()" in sources
@@ -98,7 +105,7 @@ def test_picodet_notebook_has_local_friendly_dependency_setup():
     assert "pkg_resources" in sources
     assert "SKLEARN_ALLOW_DEPRECATED_SKLEARN_PACKAGE_INSTALL" in sources
     assert 'run_command([sys.executable, "-m", "pip", "install", *BOOTSTRAP_PIP_PACKAGES], env=pip_env)' in sources
-    assert 'run_command([sys.executable, "-m", "pip", "install", "-r", str(requirements)], env=pip_env)' in sources
+    assert "run_command(paddledet_requirements_install_command(requirements), env=pip_env)" in sources
     assert '"pip", "install", "-q", "-r"' not in sources
 
 

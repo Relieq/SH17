@@ -88,6 +88,7 @@ def test_picodet_notebook_uses_paddledetection_train_cli_without_output_dir():
 def test_picodet_notebook_has_local_friendly_dependency_setup():
     sources = _notebook_sources()
 
+    assert 'print("PYTHON_EXECUTABLE:", sys.executable)' in sources
     assert "INSTALL_PADDLEDET_REQUIREMENTS = _env_flag" in sources
     assert 'BOOTSTRAP_PIP_PACKAGES = ["setuptools<81", "wheel"]' in sources
     assert "PADDLEDET_REQUIREMENTS_ONLY_BINARY = _env_flag" in sources
@@ -97,6 +98,8 @@ def test_picodet_notebook_has_local_friendly_dependency_setup():
     assert "def paddledet_requirements_install_command(requirements)" in sources
     assert 'PADDLEDET_BINARY_ONLY_PACKAGES = ["numpy", "scipy", "opencv-python", "pycocotools", "shapely"]' in sources
     assert '"--only-binary=" + ",".join(PADDLEDET_BINARY_ONLY_PACKAGES)' in sources
+    assert "PADDLE_INSTALL_INDEX_URL" in sources
+    assert '"-i", PADDLE_INSTALL_INDEX_URL' in sources
     assert "PADDLE_INSTALL_PACKAGE" in sources
     assert "AUTO_REINSTALL_PADDLE_PACKAGE = _env_flag" in sources
     assert "def ensure_paddle_package()" in sources
@@ -112,6 +115,10 @@ def test_picodet_notebook_has_local_friendly_dependency_setup():
 def test_picodet_notebook_can_fallback_to_cpu_when_gpu_is_unavailable():
     sources = _notebook_sources()
 
+    assert "VERIFY_PADDLE_GPU_RUNTIME = _env_flag" in sources
+    assert "def verify_paddle_gpu_runtime(paddle, device)" in sources
+    assert "paddle.utils.run_check()" in sources
+    assert "cudnn64_8.dll" in sources
     assert "ALLOW_CPU_FALLBACK = os.environ.get" in sources
     assert "if USE_GPU and \"gpu\" not in device.lower():" in sources
     assert "if ALLOW_CPU_FALLBACK:" in sources

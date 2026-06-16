@@ -41,6 +41,7 @@ class PicodetExperiment:
     base_lr: float
     purpose: str
     config_file_name: str
+    augmentation_profile: str = "default"
 
     @property
     def official_config_name(self) -> str:
@@ -50,40 +51,41 @@ class PicodetExperiment:
 def picodet_experiments() -> list[PicodetExperiment]:
     return [
         PicodetExperiment(
-            name="picodet_l_320_baseline",
+            name="picodet_l_320_baseline_50e",
             input_size=320,
             train_json_name="instances_train.json",
             batch_size=24,
             base_lr=0.12,
-            purpose="baseline lightweight PP-PicoDet-L at 320 input",
+            purpose="baseline lightweight PP-PicoDet-L at 320 input for 50 epochs",
             config_file_name="picodet_l_320_sh17.yml",
         ),
         PicodetExperiment(
-            name="picodet_l_416_scale",
-            input_size=416,
-            train_json_name="instances_train.json",
-            batch_size=24,
-            base_lr=0.12,
-            purpose="moderate-resolution scale variant for small PPE objects",
-            config_file_name="picodet_l_416_sh17.yml",
-        ),
-        PicodetExperiment(
-            name="picodet_l_640_scale",
+            name="picodet_l_640_scale_50e",
             input_size=640,
             train_json_name="instances_train.json",
             batch_size=12,
             base_lr=0.06,
-            purpose="high-resolution PP-PicoDet-L scale variant",
+            purpose="high-resolution PP-PicoDet-L scale variant for small PPE objects",
             config_file_name="picodet_l_640_sh17.yml",
         ),
         PicodetExperiment(
-            name="picodet_l_640_oversample_minority",
+            name="picodet_l_640_oversample_minority_50e",
             input_size=640,
             train_json_name="instances_train_oversampled.json",
             batch_size=12,
             base_lr=0.06,
             purpose="high-resolution variant with minority-class oversampling",
             config_file_name="picodet_l_640_oversample_sh17.yml",
+        ),
+        PicodetExperiment(
+            name="picodet_l_640_zoom_crop_50e",
+            input_size=640,
+            train_json_name="instances_train.json",
+            batch_size=12,
+            base_lr=0.06,
+            purpose="high-resolution variant with wider scale jitter inspired by the EffDet zoom-crop ablation",
+            config_file_name="picodet_l_640_zoom_crop_sh17.yml",
+            augmentation_profile="zoom_crop",
         ),
     ]
 
@@ -294,12 +296,21 @@ def build_picodet_config_text(
     dataset_dir: Path,
     output_dir: Path,
     paddledet_root: Path,
-    epochs: int = 200,
+    epochs: int = 50,
+    snapshot_epoch: int = 5,
+    worker_num: int = 6,
+    use_shared_memory: bool = True,
     use_gpu: bool = True,
 ) -> str:
     official_config = paddledet_root / "configs" / "picodet" / experiment.official_config_name
     annotations_dir = output_dir.parent / "dataset" / "annotations"
     use_gpu_value = "true" if use_gpu else "false"
+    shared_memory_value = "true" if use_shared_memory else "false"
+    reader_text = _picodet_reader_override(
+        experiment=experiment,
+        batch_size=experiment.batch_size,
+        use_shared_memory=shared_memory_value,
+    )
     return f"""_BASE_: ["{_path_for_yaml(official_config)}"]
 
 metric: COCO
@@ -307,7 +318,8 @@ num_classes: 17
 use_gpu: {use_gpu_value}
 use_ema: true
 epoch: {epochs}
-snapshot_epoch: 10
+snapshot_epoch: {snapshot_epoch}
+worker_num: {worker_num}
 save_dir: {_path_for_yaml(output_dir / experiment.name)}
 pretrain_weights: https://paddle-imagenet-models-name.bj.bcebos.com/dygraph/legendary_models/PPLCNet_x2_0_pretrained.pdparams
 weights: {_path_for_yaml(output_dir / experiment.name / "best_model")}
@@ -340,12 +352,44 @@ LearningRate:
     start_factor: 0.1
     steps: 300
 
-TrainReader:
-  batch_size: {experiment.batch_size}
+{reader_text}
 
 EvalReader:
   batch_size: 8
 """
+
+
+def _picodet_reader_override(
+    experiment: PicodetExperiment,
+    batch_size: int,
+    use_shared_memory: str,
+) -> str:
+    target_sizes = _batch_random_resize_targets(experiment)
+    return f"""TrainReader:
+  sample_transforms:
+  - Decode: {{}}
+  - RandomCrop: {{}}
+  - RandomFlip: {{prob: 0.5}}
+  - RandomDistort: {{}}
+  batch_transforms:
+  - BatchRandomResize: {{target_size: {target_sizes}, random_size: True, random_interp: True, keep_ratio: False}}
+  - NormalizeImage: {{is_scale: true, mean: [0.485,0.456,0.406], std: [0.229, 0.224,0.225]}}
+  - Permute: {{}}
+  - PadGT: {{}}
+  batch_size: {batch_size}
+  shuffle: true
+  drop_last: true
+  use_shared_memory: {use_shared_memory}"""
+
+
+def _batch_random_resize_targets(experiment: PicodetExperiment) -> str:
+    if experiment.augmentation_profile == "zoom_crop":
+        return "[512, 544, 576, 608, 640, 672, 704, 736, 768]"
+    if experiment.input_size == 320:
+        return "[256, 288, 320, 352, 384]"
+    if experiment.input_size == 640:
+        return "[576, 608, 640, 672, 704]"
+    raise ValueError(f"Unsupported PP-PicoDet-L input size: {experiment.input_size}")
 
 
 def write_picodet_configs(
@@ -353,7 +397,10 @@ def write_picodet_configs(
     dataset_dir: Path,
     output_dir: Path,
     paddledet_root: Path,
-    epochs: int = 200,
+    epochs: int = 50,
+    snapshot_epoch: int = 5,
+    worker_num: int = 6,
+    use_shared_memory: bool = True,
     use_gpu: bool = True,
 ) -> list[Path]:
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -367,6 +414,9 @@ def write_picodet_configs(
                 output_dir=output_dir,
                 paddledet_root=paddledet_root,
                 epochs=epochs,
+                snapshot_epoch=snapshot_epoch,
+                worker_num=worker_num,
+                use_shared_memory=use_shared_memory,
                 use_gpu=use_gpu,
             ),
             encoding="utf-8",

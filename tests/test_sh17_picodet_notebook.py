@@ -17,10 +17,11 @@ def test_picodet_notebook_contains_expected_experiments_and_class_order():
     sources = _notebook_sources()
 
     assert "PP-PicoDet-L" in sources
-    assert "picodet_l_320_baseline" in sources
-    assert "picodet_l_416_scale" in sources
-    assert "picodet_l_640_scale" in sources
-    assert "picodet_l_640_oversample_minority" in sources
+    assert "picodet_l_320_baseline_50e" in sources
+    assert "picodet_l_640_scale_50e" in sources
+    assert "picodet_l_640_oversample_minority_50e" in sources
+    assert "picodet_l_640_zoom_crop_50e" in sources
+    assert "picodet_l_416_scale" not in sources
     assert "PaddleDetection" in sources
     assert "SSDLite320" not in sources
     assert "create_model" not in sources
@@ -54,6 +55,8 @@ def test_picodet_notebook_normalizes_data_root_before_manifest_paths():
 
     assert "DATA_ROOT_CANDIDATES = _data_root_candidates()" in sources
     assert "def _resolve_data_root()" in sources
+    assert 'Path("E:/data/SH17")' in sources
+    assert 'Path("D:/data/SH17")' in sources
     assert 'PROJECT_ROOT / "datasets" / "sh17-dataset-for-ppe-detection"' in sources
     assert 'PROJECT_ROOT / "datasets" / "mugheesahmad" / "sh17-dataset-for-ppe-detection"' in sources
     assert "DATA_ROOT = Path(DATA_ROOT).expanduser()" in sources
@@ -85,10 +88,10 @@ def test_picodet_notebook_uses_paddledetection_train_cli_without_output_dir():
 def test_picodet_notebook_has_local_friendly_dependency_setup():
     sources = _notebook_sources()
 
-    assert "INSTALL_PADDLEDET_REQUIREMENTS = True" in sources
+    assert "INSTALL_PADDLEDET_REQUIREMENTS = _env_flag" in sources
     assert 'BOOTSTRAP_PIP_PACKAGES = ["setuptools<81", "wheel"]' in sources
     assert "PADDLE_INSTALL_PACKAGE" in sources
-    assert "AUTO_REINSTALL_PADDLE_PACKAGE = True" in sources
+    assert "AUTO_REINSTALL_PADDLE_PACKAGE = _env_flag" in sources
     assert "def ensure_paddle_package()" in sources
     assert "paddlepaddle-gpu" in sources
     assert "pip\", \"uninstall\", \"-y\"" in sources
@@ -102,11 +105,13 @@ def test_picodet_notebook_has_local_friendly_dependency_setup():
 def test_picodet_notebook_can_fallback_to_cpu_when_gpu_is_unavailable():
     sources = _notebook_sources()
 
-    assert "ALLOW_CPU_FALLBACK = True" in sources
+    assert "ALLOW_CPU_FALLBACK = os.environ.get" in sources
     assert "if USE_GPU and \"gpu\" not in device.lower():" in sources
     assert "if ALLOW_CPU_FALLBACK:" in sources
     assert 'paddle.set_device("cpu")' in sources
     assert "Falling back to CPU" in sources
+    assert "TRAIN_WITH_AMP" in sources
+    assert 'command.append("--amp")' in sources
 
 
 def test_picodet_notebook_code_cells_are_valid_python():
@@ -211,34 +216,65 @@ def test_picodet_config_generation_uses_sh17_dataset_and_variant_settings(tmp_pa
         name: experiment.config_file_name
         for name, experiment in experiments.items()
     } == {
-        "picodet_l_320_baseline": "picodet_l_320_sh17.yml",
-        "picodet_l_416_scale": "picodet_l_416_sh17.yml",
-        "picodet_l_640_scale": "picodet_l_640_sh17.yml",
-        "picodet_l_640_oversample_minority": "picodet_l_640_oversample_sh17.yml",
+        "picodet_l_320_baseline_50e": "picodet_l_320_sh17.yml",
+        "picodet_l_640_scale_50e": "picodet_l_640_sh17.yml",
+        "picodet_l_640_oversample_minority_50e": "picodet_l_640_oversample_sh17.yml",
+        "picodet_l_640_zoom_crop_50e": "picodet_l_640_zoom_crop_sh17.yml",
     }
     config_text = build_picodet_config_text(
-        experiment=experiments["picodet_l_640_oversample_minority"],
+        experiment=experiments["picodet_l_640_oversample_minority_50e"],
         dataset_dir=tmp_path / "dataset",
         output_dir=tmp_path / "runs",
         paddledet_root=tmp_path / "PaddleDetection",
+        epochs=50,
+        snapshot_epoch=5,
+        worker_num=6,
+        use_shared_memory=True,
     )
 
     assert "picodet_l_640_coco_lcnet.yml" in config_text
     assert "num_classes: 17" in config_text
-    assert "epoch: 200" in config_text
+    assert "epoch: 50" in config_text
     assert "use_ema: true" in config_text
     assert "use_gpu: true" in config_text
-    assert "snapshot_epoch: 10" in config_text
-    assert f"save_dir: {(tmp_path / 'runs' / 'picodet_l_640_oversample_minority').as_posix()}" in config_text
+    assert "snapshot_epoch: 5" in config_text
+    assert "worker_num: 6" in config_text
+    assert "use_shared_memory: true" in config_text
+    assert f"save_dir: {(tmp_path / 'runs' / 'picodet_l_640_oversample_minority_50e').as_posix()}" in config_text
     assert "base_lr: 0.06" in config_text
     assert "batch_size: 12" in config_text
     assert "instances_train_oversampled.json" in config_text
 
     cpu_config_text = build_picodet_config_text(
-        experiment=experiments["picodet_l_320_baseline"],
+        experiment=experiments["picodet_l_320_baseline_50e"],
         dataset_dir=tmp_path / "dataset",
         output_dir=tmp_path / "runs",
         paddledet_root=tmp_path / "PaddleDetection",
         use_gpu=False,
     )
     assert "use_gpu: false" in cpu_config_text
+
+    zoom_config_text = build_picodet_config_text(
+        experiment=experiments["picodet_l_640_zoom_crop_50e"],
+        dataset_dir=tmp_path / "dataset",
+        output_dir=tmp_path / "runs",
+        paddledet_root=tmp_path / "PaddleDetection",
+        epochs=50,
+        snapshot_epoch=5,
+    )
+    assert "BatchRandomResize: {target_size: [512, 544, 576, 608, 640, 672, 704, 736, 768]" in zoom_config_text
+    assert "picodet_l_640_zoom_crop_50e" in zoom_config_text
+
+
+def test_picodet_analyzer_notebook_uses_pending_for_missing_real_metrics():
+    analyzer_path = Path("analyze_picodet_l_variants.ipynb")
+    payload = json.loads(analyzer_path.read_text(encoding="utf-8"))
+    sources = "\n".join("".join(cell.get("source", [])) for cell in payload["cells"])
+
+    assert "pending" in sources
+    assert "picodet_l_640_zoom_crop_50e" in sources
+    assert "summary_metrics.csv" in sources
+    assert "per_class_metrics.csv" in sources
+    assert "variant_map_comparison.png" in sources
+    assert "random.uniform" not in sources
+    assert "np.random" not in sources

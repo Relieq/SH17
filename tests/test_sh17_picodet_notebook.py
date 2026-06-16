@@ -89,6 +89,11 @@ def test_picodet_notebook_has_local_friendly_dependency_setup():
     sources = _notebook_sources()
 
     assert 'print("PYTHON_EXECUTABLE:", sys.executable)' in sources
+    assert "def command_env(extra_env=None)" in sources
+    assert 'base_env.setdefault("PYTHONUTF8", "1")' in sources
+    assert 'base_env.setdefault("PYTHONIOENCODING", "utf-8")' in sources
+    assert 'encoding="utf-8"' in sources
+    assert 'errors="replace"' in sources
     assert "INSTALL_PADDLEDET_REQUIREMENTS = _env_flag" in sources
     assert 'BOOTSTRAP_PIP_PACKAGES = ["setuptools<81", "wheel"]' in sources
     assert "PADDLEDET_REQUIREMENTS_ONLY_BINARY = _env_flag" in sources

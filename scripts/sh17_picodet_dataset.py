@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable
@@ -30,6 +31,7 @@ CLASS_NAMES = [
 MINORITY_CLASS_IDS_ZERO_BASED = {2, 4, 6, 10, 13, 16}
 MINORITY_REPEAT_FACTOR = 3
 PICODET_L_PARAMS_M = 5.80
+AUGMENTATION_PROFILES = ("official", "no_distort", "fast", "fixed")
 
 
 @dataclass(frozen=True)
@@ -41,52 +43,85 @@ class PicodetExperiment:
     base_lr: float
     purpose: str
     config_file_name: str
-    augmentation_profile: str = "default"
+    augmentation_profile: str = "fast"
+    resize_profile: str = "standard"
 
     @property
     def official_config_name(self) -> str:
         return f"picodet_l_{self.input_size}_coco_lcnet.yml"
 
 
-def picodet_experiments() -> list[PicodetExperiment]:
+def picodet_experiments(
+    augmentation_profile: str = "fast",
+    epoch_label: str = "20e",
+) -> list[PicodetExperiment]:
+    if augmentation_profile not in AUGMENTATION_PROFILES:
+        raise ValueError(
+            f"Unsupported augmentation_profile={augmentation_profile!r}. "
+            f"Expected one of {AUGMENTATION_PROFILES}."
+        )
+    suffix = f"{augmentation_profile}_{epoch_label}"
     return [
         PicodetExperiment(
-            name="picodet_l_320_baseline_50e",
+            name=f"picodet_l_320_baseline_{suffix}",
             input_size=320,
             train_json_name="instances_train.json",
             batch_size=24,
             base_lr=0.12,
-            purpose="baseline lightweight PP-PicoDet-L at 320 input for 50 epochs",
-            config_file_name="picodet_l_320_sh17.yml",
+            purpose=f"{augmentation_profile}-profile lightweight PP-PicoDet-L baseline at 320 input for pilot training",
+            config_file_name=f"picodet_l_320_{augmentation_profile}_sh17.yml",
+            augmentation_profile=augmentation_profile,
         ),
         PicodetExperiment(
-            name="picodet_l_640_scale_50e",
+            name=f"picodet_l_640_scale_{suffix}",
             input_size=640,
             train_json_name="instances_train.json",
             batch_size=12,
             base_lr=0.06,
-            purpose="high-resolution PP-PicoDet-L scale variant for small PPE objects",
-            config_file_name="picodet_l_640_sh17.yml",
+            purpose=f"{augmentation_profile}-profile high-resolution PP-PicoDet-L scale variant for small PPE objects",
+            config_file_name=f"picodet_l_640_{augmentation_profile}_sh17.yml",
+            augmentation_profile=augmentation_profile,
         ),
         PicodetExperiment(
-            name="picodet_l_640_oversample_minority_50e",
+            name=f"picodet_l_640_oversample_{suffix}",
             input_size=640,
             train_json_name="instances_train_oversampled.json",
             batch_size=12,
             base_lr=0.06,
-            purpose="high-resolution variant with minority-class oversampling",
-            config_file_name="picodet_l_640_oversample_sh17.yml",
+            purpose=f"{augmentation_profile}-profile high-resolution variant with minority-class oversampling",
+            config_file_name=f"picodet_l_640_oversample_{augmentation_profile}_sh17.yml",
+            augmentation_profile=augmentation_profile,
         ),
         PicodetExperiment(
-            name="picodet_l_640_zoom_crop_50e",
+            name=f"picodet_l_640_zoom_crop_{suffix}",
             input_size=640,
             train_json_name="instances_train.json",
             batch_size=12,
             base_lr=0.06,
-            purpose="high-resolution variant with wider scale jitter inspired by the EffDet zoom-crop ablation",
-            config_file_name="picodet_l_640_zoom_crop_sh17.yml",
-            augmentation_profile="zoom_crop",
+            purpose=f"{augmentation_profile}-profile high-resolution variant with wider scale jitter inspired by the EffDet zoom-crop ablation",
+            config_file_name=f"picodet_l_640_zoom_crop_{augmentation_profile}_sh17.yml",
+            augmentation_profile=augmentation_profile,
+            resize_profile="zoom_crop",
         ),
+    ]
+
+
+def picodet_speed_benchmark_experiments(
+    input_size: int = 320,
+    train_json_name: str = "instances_train_benchmark_960.json",
+) -> list[PicodetExperiment]:
+    return [
+        PicodetExperiment(
+            name=f"picodet_l_{input_size}_bench_{profile}",
+            input_size=input_size,
+            train_json_name=train_json_name,
+            batch_size=24,
+            base_lr=0.12,
+            purpose=f"speed benchmark for {profile} augmentation profile",
+            config_file_name=f"bench_picodet_l_{input_size}_{profile}.yml",
+            augmentation_profile=profile,
+        )
+        for profile in AUGMENTATION_PROFILES
     ]
 
 
@@ -291,6 +326,70 @@ def build_oversampled_coco(
     }
 
 
+def build_benchmark_coco_subset(source_json: Path, output_json: Path, image_limit: int) -> dict[str, int]:
+    if image_limit < 1:
+        raise ValueError("image_limit must be >= 1")
+
+    payload = json.loads(source_json.read_text(encoding="utf-8"))
+    subset_images = copy.deepcopy(payload["images"][:image_limit])
+    subset_image_ids = {image["id"] for image in subset_images}
+    subset_annotations = [
+        copy.deepcopy(annotation)
+        for annotation in payload["annotations"]
+        if annotation["image_id"] in subset_image_ids
+    ]
+    output_payload = {
+        "images": subset_images,
+        "annotations": subset_annotations,
+        "categories": copy.deepcopy(payload["categories"]),
+    }
+    output_json.parent.mkdir(parents=True, exist_ok=True)
+    output_json.write_text(json.dumps(output_payload, indent=2), encoding="utf-8")
+    return {
+        "images": len(subset_images),
+        "instances": len(subset_annotations),
+        "categories": len(output_payload["categories"]),
+    }
+
+
+def parse_picodet_speed_log(log_path: Path) -> dict[str, str | int]:
+    pattern = re.compile(
+        r"batch_cost:\s*([0-9.]+)\s+data_cost:\s*([0-9.]+)\s+ips:\s*([0-9.]+).*?"
+        r"max_mem_allocated:\s*([0-9]+)\s*MB"
+    )
+    rows = []
+    for line in log_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        match = pattern.search(line)
+        if match:
+            rows.append(
+                {
+                    "batch_cost": float(match.group(1)),
+                    "data_cost": float(match.group(2)),
+                    "ips": float(match.group(3)),
+                    "max_mem_allocated_mb": int(match.group(4)),
+                }
+            )
+
+    if not rows:
+        return {
+            "profile_status": "pending",
+            "batch_count": 0,
+            "mean_batch_cost": "pending",
+            "mean_data_cost": "pending",
+            "mean_ips": "pending",
+            "max_mem_allocated_mb": 0,
+        }
+
+    return {
+        "profile_status": "real",
+        "batch_count": len(rows),
+        "mean_batch_cost": f"{sum(row['batch_cost'] for row in rows) / len(rows):.6f}",
+        "mean_data_cost": f"{sum(row['data_cost'] for row in rows) / len(rows):.6f}",
+        "mean_ips": f"{sum(row['ips'] for row in rows) / len(rows):.6f}",
+        "max_mem_allocated_mb": max(row["max_mem_allocated_mb"] for row in rows),
+    }
+
+
 def build_picodet_config_text(
     experiment: PicodetExperiment,
     dataset_dir: Path,
@@ -313,6 +412,9 @@ def build_picodet_config_text(
     )
     return f"""_BASE_: ["{_path_for_yaml(official_config)}"]
 
+# sh17_metadata:
+# augmentation_profile: {experiment.augmentation_profile}
+# resize_profile: {experiment.resize_profile}
 metric: COCO
 num_classes: 17
 use_gpu: {use_gpu_value}
@@ -365,12 +467,10 @@ def _picodet_reader_override(
     use_shared_memory: str,
 ) -> str:
     target_sizes = _batch_random_resize_targets(experiment)
+    sample_transforms = _sample_transform_lines(experiment.augmentation_profile)
     return f"""TrainReader:
   sample_transforms:
-  - Decode: {{}}
-  - RandomCrop: {{}}
-  - RandomFlip: {{prob: 0.5}}
-  - RandomDistort: {{}}
+{sample_transforms}
   batch_transforms:
   - BatchRandomResize: {{target_size: {target_sizes}, random_size: True, random_interp: True, keep_ratio: False}}
   - NormalizeImage: {{is_scale: true, mean: [0.485,0.456,0.406], std: [0.229, 0.224,0.225]}}
@@ -382,8 +482,34 @@ def _picodet_reader_override(
   use_shared_memory: {use_shared_memory}"""
 
 
+def _sample_transform_lines(augmentation_profile: str) -> str:
+    if augmentation_profile not in AUGMENTATION_PROFILES:
+        raise ValueError(
+            f"Unsupported augmentation_profile={augmentation_profile!r}. "
+            f"Expected one of {AUGMENTATION_PROFILES}."
+        )
+
+    transforms = ["Decode"]
+    if augmentation_profile == "official":
+        transforms.extend(["RandomCrop", "RandomFlip", "RandomDistort"])
+    elif augmentation_profile == "no_distort":
+        transforms.extend(["RandomCrop", "RandomFlip"])
+    else:
+        transforms.append("RandomFlip")
+
+    lines = []
+    for transform in transforms:
+        if transform == "RandomFlip":
+            lines.append("  - RandomFlip: {prob: 0.5}")
+        else:
+            lines.append(f"  - {transform}: {{}}")
+    return "\n".join(lines)
+
+
 def _batch_random_resize_targets(experiment: PicodetExperiment) -> str:
-    if experiment.augmentation_profile == "zoom_crop":
+    if experiment.augmentation_profile == "fixed":
+        return f"[{experiment.input_size}]"
+    if experiment.resize_profile == "zoom_crop":
         return "[512, 544, 576, 608, 640, 672, 704, 736, 768]"
     if experiment.input_size == 320:
         return "[256, 288, 320, 352, 384]"
@@ -402,10 +528,11 @@ def write_picodet_configs(
     worker_num: int = 6,
     use_shared_memory: bool = True,
     use_gpu: bool = True,
+    experiments: Iterable[PicodetExperiment] | None = None,
 ) -> list[Path]:
     config_dir.mkdir(parents=True, exist_ok=True)
     config_paths = []
-    for experiment in picodet_experiments():
+    for experiment in experiments or picodet_experiments():
         config_path = config_dir / experiment.config_file_name
         config_path.write_text(
             build_picodet_config_text(

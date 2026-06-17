@@ -17,10 +17,11 @@ def test_picodet_notebook_contains_expected_experiments_and_class_order():
     sources = _notebook_sources()
 
     assert "PP-PicoDet-L" in sources
-    assert "picodet_l_320_baseline_50e" in sources
-    assert "picodet_l_640_scale_50e" in sources
-    assert "picodet_l_640_oversample_minority_50e" in sources
-    assert "picodet_l_640_zoom_crop_50e" in sources
+    assert "picodet_l_320_baseline_fast_20e" in sources
+    assert "picodet_l_640_scale_fast_20e" in sources
+    assert "picodet_l_640_oversample_fast_20e" in sources
+    assert "picodet_l_640_zoom_crop_fast_20e" in sources
+    assert "picodet_l_320_baseline_50e" not in sources
     assert "picodet_l_416_scale" not in sources
     assert "PaddleDetection" in sources
     assert "SSDLite320" not in sources
@@ -83,6 +84,20 @@ def test_picodet_notebook_uses_paddledetection_train_cli_without_output_dir():
     assert '"tools/train.py"' in sources
     assert "last_checkpoint_base_path" in sources
     assert 'command.extend(["-r", str(last_checkpoint)])' in sources
+
+
+def test_picodet_notebook_exposes_speed_benchmark_controls():
+    sources = _notebook_sources()
+
+    assert "RUN_SPEED_BENCHMARK = _env_flag" in sources
+    assert 'BENCHMARK_IMAGE_LIMIT = int(os.environ.get("SH17_BENCHMARK_IMAGE_LIMIT", "960"))' in sources
+    assert 'TRAIN_AUG_PROFILE = os.environ.get("SH17_TRAIN_AUG_PROFILE", "fast")' in sources
+    assert 'PILOT_EPOCHS = int(os.environ.get("SH17_PILOT_EPOCHS", "20"))' in sources
+    assert 'FULL_EPOCHS = int(os.environ.get("SH17_FULL_EPOCHS", "50"))' in sources
+    assert "build_benchmark_coco_subset" in sources
+    assert "picodet_speed_benchmark_experiments" in sources
+    assert "parse_picodet_speed_log" in sources
+    assert "speed_benchmark.csv" in sources
 
 
 def test_picodet_notebook_has_local_friendly_dependency_setup():
@@ -235,17 +250,17 @@ def test_picodet_config_generation_uses_sh17_dataset_and_variant_settings(tmp_pa
         name: experiment.config_file_name
         for name, experiment in experiments.items()
     } == {
-        "picodet_l_320_baseline_50e": "picodet_l_320_sh17.yml",
-        "picodet_l_640_scale_50e": "picodet_l_640_sh17.yml",
-        "picodet_l_640_oversample_minority_50e": "picodet_l_640_oversample_sh17.yml",
-        "picodet_l_640_zoom_crop_50e": "picodet_l_640_zoom_crop_sh17.yml",
+        "picodet_l_320_baseline_fast_20e": "picodet_l_320_fast_sh17.yml",
+        "picodet_l_640_scale_fast_20e": "picodet_l_640_fast_sh17.yml",
+        "picodet_l_640_oversample_fast_20e": "picodet_l_640_oversample_fast_sh17.yml",
+        "picodet_l_640_zoom_crop_fast_20e": "picodet_l_640_zoom_crop_fast_sh17.yml",
     }
     config_text = build_picodet_config_text(
-        experiment=experiments["picodet_l_640_oversample_minority_50e"],
+        experiment=experiments["picodet_l_640_oversample_fast_20e"],
         dataset_dir=tmp_path / "dataset",
         output_dir=tmp_path / "runs",
         paddledet_root=tmp_path / "PaddleDetection",
-        epochs=50,
+        epochs=20,
         snapshot_epoch=5,
         worker_num=6,
         use_shared_memory=True,
@@ -253,19 +268,22 @@ def test_picodet_config_generation_uses_sh17_dataset_and_variant_settings(tmp_pa
 
     assert "picodet_l_640_coco_lcnet.yml" in config_text
     assert "num_classes: 17" in config_text
-    assert "epoch: 50" in config_text
+    assert "epoch: 20" in config_text
     assert "use_ema: true" in config_text
     assert "use_gpu: true" in config_text
     assert "snapshot_epoch: 5" in config_text
     assert "worker_num: 6" in config_text
     assert "use_shared_memory: true" in config_text
-    assert f"save_dir: {(tmp_path / 'runs' / 'picodet_l_640_oversample_minority_50e').as_posix()}" in config_text
+    assert f"save_dir: {(tmp_path / 'runs' / 'picodet_l_640_oversample_fast_20e').as_posix()}" in config_text
     assert "base_lr: 0.06" in config_text
     assert "batch_size: 12" in config_text
     assert "instances_train_oversampled.json" in config_text
+    assert "augmentation_profile: fast" in config_text
+    assert "RandomCrop" not in config_text
+    assert "RandomDistort" not in config_text
 
     cpu_config_text = build_picodet_config_text(
-        experiment=experiments["picodet_l_320_baseline_50e"],
+        experiment=experiments["picodet_l_320_baseline_fast_20e"],
         dataset_dir=tmp_path / "dataset",
         output_dir=tmp_path / "runs",
         paddledet_root=tmp_path / "PaddleDetection",
@@ -274,15 +292,116 @@ def test_picodet_config_generation_uses_sh17_dataset_and_variant_settings(tmp_pa
     assert "use_gpu: false" in cpu_config_text
 
     zoom_config_text = build_picodet_config_text(
-        experiment=experiments["picodet_l_640_zoom_crop_50e"],
+        experiment=experiments["picodet_l_640_zoom_crop_fast_20e"],
         dataset_dir=tmp_path / "dataset",
         output_dir=tmp_path / "runs",
         paddledet_root=tmp_path / "PaddleDetection",
-        epochs=50,
+        epochs=20,
         snapshot_epoch=5,
     )
     assert "BatchRandomResize: {target_size: [512, 544, 576, 608, 640, 672, 704, 736, 768]" in zoom_config_text
-    assert "picodet_l_640_zoom_crop_50e" in zoom_config_text
+    assert "picodet_l_640_zoom_crop_fast_20e" in zoom_config_text
+
+
+def test_picodet_config_generation_supports_augmentation_profiles(tmp_path):
+    from scripts.sh17_picodet_dataset import (
+        AUGMENTATION_PROFILES,
+        PicodetExperiment,
+        build_picodet_config_text,
+    )
+
+    assert AUGMENTATION_PROFILES == ("official", "no_distort", "fast", "fixed")
+    base_kwargs = {
+        "name": "profile_test",
+        "input_size": 320,
+        "train_json_name": "instances_train.json",
+        "batch_size": 24,
+        "base_lr": 0.12,
+        "purpose": "profile test",
+        "config_file_name": "profile.yml",
+    }
+
+    official = build_picodet_config_text(
+        PicodetExperiment(**base_kwargs, augmentation_profile="official"),
+        tmp_path / "dataset",
+        tmp_path / "runs",
+        tmp_path / "PaddleDetection",
+    )
+    no_distort = build_picodet_config_text(
+        PicodetExperiment(**base_kwargs, augmentation_profile="no_distort"),
+        tmp_path / "dataset",
+        tmp_path / "runs",
+        tmp_path / "PaddleDetection",
+    )
+    fast = build_picodet_config_text(
+        PicodetExperiment(**base_kwargs, augmentation_profile="fast"),
+        tmp_path / "dataset",
+        tmp_path / "runs",
+        tmp_path / "PaddleDetection",
+    )
+    fixed = build_picodet_config_text(
+        PicodetExperiment(**base_kwargs, augmentation_profile="fixed"),
+        tmp_path / "dataset",
+        tmp_path / "runs",
+        tmp_path / "PaddleDetection",
+    )
+
+    assert "RandomCrop" in official
+    assert "RandomDistort" in official
+    assert "RandomCrop" in no_distort
+    assert "RandomDistort" not in no_distort
+    assert "RandomCrop" not in fast
+    assert "RandomDistort" not in fast
+    assert "BatchRandomResize: {target_size: [320], random_size: True" in fixed
+
+
+def test_picodet_benchmark_subset_and_speed_log_parser(tmp_path):
+    from scripts.sh17_picodet_dataset import build_benchmark_coco_subset, parse_picodet_speed_log
+
+    source_json = tmp_path / "instances_train.json"
+    subset_json = tmp_path / "instances_train_benchmark_2.json"
+    source_json.write_text(
+        json.dumps(
+            {
+                "images": [
+                    {"id": 1, "file_name": "a.jpg", "width": 100, "height": 100},
+                    {"id": 2, "file_name": "b.jpg", "width": 100, "height": 100},
+                    {"id": 3, "file_name": "c.jpg", "width": 100, "height": 100},
+                ],
+                "annotations": [
+                    {"id": 1, "image_id": 1, "category_id": 1, "bbox": [0, 0, 10, 10], "area": 100, "iscrowd": 0},
+                    {"id": 2, "image_id": 2, "category_id": 2, "bbox": [0, 0, 20, 20], "area": 400, "iscrowd": 0},
+                    {"id": 3, "image_id": 3, "category_id": 3, "bbox": [0, 0, 30, 30], "area": 900, "iscrowd": 0},
+                ],
+                "categories": [{"id": 1, "name": "person"}, {"id": 2, "name": "ear"}, {"id": 3, "name": "ear-mufs"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    stats = build_benchmark_coco_subset(source_json, subset_json, image_limit=2)
+    subset = json.loads(subset_json.read_text(encoding="utf-8"))
+    assert stats == {"images": 2, "instances": 2, "categories": 3}
+    assert [image["id"] for image in subset["images"]] == [1, 2]
+    assert {annotation["image_id"] for annotation in subset["annotations"]} == {1, 2}
+
+    log_path = tmp_path / "train.log"
+    log_path.write_text(
+        "\n".join(
+            [
+                "INFO: Epoch: [0] [ 20/40] batch_cost: 15.5624 data_cost: 15.1024 ips: 1.5422 images/s, max_mem_reserved: 6045 MB, max_mem_allocated: 5424 MB",
+                "INFO: Epoch: [0] [ 40/40] batch_cost: 13.8858 data_cost: 13.4443 ips: 1.7284 images/s, max_mem_reserved: 6045 MB, max_mem_allocated: 5501 MB",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    metrics = parse_picodet_speed_log(log_path)
+    assert metrics["profile_status"] == "real"
+    assert metrics["batch_count"] == 2
+    assert metrics["mean_batch_cost"] == "14.724100"
+    assert metrics["mean_data_cost"] == "14.273350"
+    assert metrics["mean_ips"] == "1.635300"
+    assert metrics["max_mem_allocated_mb"] == 5501
 
 
 def test_picodet_analyzer_notebook_uses_pending_for_missing_real_metrics():
@@ -291,9 +410,13 @@ def test_picodet_analyzer_notebook_uses_pending_for_missing_real_metrics():
     sources = "\n".join("".join(cell.get("source", [])) for cell in payload["cells"])
 
     assert "pending" in sources
-    assert "picodet_l_640_zoom_crop_50e" in sources
+    assert "picodet_l_640_zoom_crop_fast_20e" in sources
+    assert "picodet_l_640_zoom_crop_50e" not in sources
     assert "summary_metrics.csv" in sources
     assert "per_class_metrics.csv" in sources
+    assert "epochs_trained" in sources
+    assert "augmentation_profile" in sources
+    assert "speed_benchmark.csv" in sources
     assert "variant_map_comparison.png" in sources
     assert "random.uniform" not in sources
     assert "np.random" not in sources

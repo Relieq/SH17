@@ -89,7 +89,7 @@ def test_picodet_notebook_uses_paddledetection_train_cli_without_output_dir():
 def test_picodet_notebook_exposes_speed_benchmark_controls():
     sources = _notebook_sources()
 
-    assert "RUN_SPEED_BENCHMARK = _env_flag" in sources
+    assert 'RUN_SPEED_BENCHMARK = _env_flag("SH17_RUN_SPEED_BENCHMARK", False)' in sources
     assert 'BENCHMARK_IMAGE_LIMIT = int(os.environ.get("SH17_BENCHMARK_IMAGE_LIMIT", "960"))' in sources
     assert 'TRAIN_AUG_PROFILE = os.environ.get("SH17_TRAIN_AUG_PROFILE", "fast")' in sources
     assert 'PILOT_EPOCHS = int(os.environ.get("SH17_PILOT_EPOCHS", "20"))' in sources
@@ -98,6 +98,7 @@ def test_picodet_notebook_exposes_speed_benchmark_controls():
     assert "picodet_speed_benchmark_experiments" in sources
     assert "parse_picodet_speed_log" in sources
     assert "speed_benchmark.csv" in sources
+    assert "annotations_dir=ANNOTATION_DIR" in sources
 
 
 def test_picodet_notebook_has_local_friendly_dependency_setup():
@@ -402,6 +403,31 @@ def test_picodet_benchmark_subset_and_speed_log_parser(tmp_path):
     assert metrics["mean_data_cost"] == "14.273350"
     assert metrics["mean_ips"] == "1.635300"
     assert metrics["max_mem_allocated_mb"] == 5501
+
+
+def test_picodet_benchmark_configs_use_shared_annotation_dir(tmp_path):
+    from scripts.sh17_picodet_dataset import picodet_speed_benchmark_experiments, write_picodet_configs
+
+    dataset_dir = tmp_path / "raw_dataset"
+    annotations_dir = tmp_path / "outputs" / "picodet_l_paddledet" / "dataset" / "annotations"
+    benchmark_root = tmp_path / "outputs" / "picodet_l_paddledet" / "speed_benchmarks"
+    config_dir = benchmark_root / "configs"
+    output_dir = benchmark_root / "runs"
+
+    config_paths = write_picodet_configs(
+        config_dir=config_dir,
+        dataset_dir=dataset_dir,
+        output_dir=output_dir,
+        paddledet_root=tmp_path / "PaddleDetection",
+        epochs=1,
+        snapshot_epoch=1,
+        experiments=picodet_speed_benchmark_experiments(train_json_name="instances_train_benchmark_960.json"),
+        annotations_dir=annotations_dir,
+    )
+
+    config_text = config_paths[0].read_text(encoding="utf-8")
+    assert str(annotations_dir / "instances_train_benchmark_960.json").replace("\\", "/") in config_text
+    assert str(benchmark_root / "dataset" / "annotations").replace("\\", "/") not in config_text
 
 
 def test_picodet_analyzer_notebook_uses_pending_for_missing_real_metrics():

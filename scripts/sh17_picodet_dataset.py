@@ -400,9 +400,10 @@ def build_picodet_config_text(
     worker_num: int = 6,
     use_shared_memory: bool = True,
     use_gpu: bool = True,
+    annotations_dir: Path | None = None,
 ) -> str:
     official_config = paddledet_root / "configs" / "picodet" / experiment.official_config_name
-    annotations_dir = output_dir.parent / "dataset" / "annotations"
+    annotations_dir = annotations_dir or output_dir.parent / "dataset" / "annotations"
     use_gpu_value = "true" if use_gpu else "false"
     shared_memory_value = "true" if use_shared_memory else "false"
     reader_text = _picodet_reader_override(
@@ -529,6 +530,7 @@ def write_picodet_configs(
     use_shared_memory: bool = True,
     use_gpu: bool = True,
     experiments: Iterable[PicodetExperiment] | None = None,
+    annotations_dir: Path | None = None,
 ) -> list[Path]:
     config_dir.mkdir(parents=True, exist_ok=True)
     config_paths = []
@@ -545,6 +547,7 @@ def write_picodet_configs(
                 worker_num=worker_num,
                 use_shared_memory=use_shared_memory,
                 use_gpu=use_gpu,
+                annotations_dir=annotations_dir,
             ),
             encoding="utf-8",
         )

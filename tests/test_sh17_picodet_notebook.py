@@ -99,6 +99,7 @@ def test_picodet_notebook_exposes_speed_benchmark_controls():
     assert "parse_picodet_speed_log" in sources
     assert "speed_benchmark.csv" in sources
     assert "annotations_dir=ANNOTATION_DIR" in sources
+    assert "Parsed existing speed benchmark logs" in sources
 
 
 def test_picodet_notebook_has_local_friendly_dependency_setup():
@@ -403,6 +404,29 @@ def test_picodet_benchmark_subset_and_speed_log_parser(tmp_path):
     assert metrics["mean_data_cost"] == "14.273350"
     assert metrics["mean_ips"] == "1.635300"
     assert metrics["max_mem_allocated_mb"] == 5501
+
+
+def test_picodet_speed_log_parser_accepts_logs_without_memory_field(tmp_path):
+    from scripts.sh17_picodet_dataset import parse_picodet_speed_log
+
+    log_path = tmp_path / "speed_benchmark_fast.log"
+    log_path.write_text(
+        "\n".join(
+            [
+                "[06/18 01:37:59] ppdet.engine.callbacks INFO: Epoch: [0] [ 0/40] learning_rate: 0.012000 loss_vfl: 2.236300 loss_bbox: 1.448248 loss_dfl: 1.044043 loss: 4.728592 eta: 0:22:27 batch_cost: 33.6860 data_cost: 5.6352 ips: 0.7125 images/s",
+                "[06/18 01:43:50] ppdet.engine.callbacks INFO: Epoch: [0] [20/40] learning_rate: 0.019200 loss_vfl: 1.623269 loss_bbox: 1.440766 loss_dfl: 0.976116 loss: 4.021447 eta: 0:06:06 batch_cost: 17.5539 data_cost: 0.0001 ips: 1.3672 images/s",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    metrics = parse_picodet_speed_log(log_path)
+    assert metrics["profile_status"] == "real"
+    assert metrics["batch_count"] == 2
+    assert metrics["mean_batch_cost"] == "25.619950"
+    assert metrics["mean_data_cost"] == "2.817650"
+    assert metrics["mean_ips"] == "1.039850"
+    assert metrics["max_mem_allocated_mb"] == 0
 
 
 def test_picodet_benchmark_configs_use_shared_annotation_dir(tmp_path):

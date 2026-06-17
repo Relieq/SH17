@@ -354,19 +354,20 @@ def build_benchmark_coco_subset(source_json: Path, output_json: Path, image_limi
 
 def parse_picodet_speed_log(log_path: Path) -> dict[str, str | int]:
     pattern = re.compile(
-        r"batch_cost:\s*([0-9.]+)\s+data_cost:\s*([0-9.]+)\s+ips:\s*([0-9.]+).*?"
-        r"max_mem_allocated:\s*([0-9]+)\s*MB"
+        r"batch_cost:\s*([0-9.]+)\s+data_cost:\s*([0-9.]+)\s+ips:\s*([0-9.]+)"
     )
+    memory_pattern = re.compile(r"max_mem_allocated:\s*([0-9]+)\s*MB")
     rows = []
     for line in log_path.read_text(encoding="utf-8", errors="replace").splitlines():
         match = pattern.search(line)
         if match:
+            memory_match = memory_pattern.search(line)
             rows.append(
                 {
                     "batch_cost": float(match.group(1)),
                     "data_cost": float(match.group(2)),
                     "ips": float(match.group(3)),
-                    "max_mem_allocated_mb": int(match.group(4)),
+                    "max_mem_allocated_mb": int(memory_match.group(1)) if memory_match else 0,
                 }
             )
 

@@ -53,7 +53,7 @@ class PicodetExperiment:
 
 def picodet_experiments(
     augmentation_profile: str = "fast",
-    epoch_label: str = "20e",
+    epoch_label: str = "50e",
 ) -> list[PicodetExperiment]:
     if augmentation_profile not in AUGMENTATION_PROFILES:
         raise ValueError(

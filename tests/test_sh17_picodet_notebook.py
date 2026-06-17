@@ -17,11 +17,11 @@ def test_picodet_notebook_contains_expected_experiments_and_class_order():
     sources = _notebook_sources()
 
     assert "PP-PicoDet-L" in sources
-    assert "picodet_l_320_baseline_fast_20e" in sources
-    assert "picodet_l_640_scale_fast_20e" in sources
-    assert "picodet_l_640_oversample_fast_20e" in sources
-    assert "picodet_l_640_zoom_crop_fast_20e" in sources
-    assert "picodet_l_320_baseline_50e" not in sources
+    assert "picodet_l_320_baseline_fast_50e" in sources
+    assert "picodet_l_640_scale_fast_50e" in sources
+    assert "picodet_l_640_oversample_fast_50e" in sources
+    assert "picodet_l_640_zoom_crop_fast_50e" in sources
+    assert "picodet_l_320_baseline_fast_20e" not in sources
     assert "picodet_l_416_scale" not in sources
     assert "PaddleDetection" in sources
     assert "SSDLite320" not in sources
@@ -94,6 +94,8 @@ def test_picodet_notebook_exposes_speed_benchmark_controls():
     assert 'TRAIN_AUG_PROFILE = os.environ.get("SH17_TRAIN_AUG_PROFILE", "fast")' in sources
     assert 'PILOT_EPOCHS = int(os.environ.get("SH17_PILOT_EPOCHS", "20"))' in sources
     assert 'FULL_EPOCHS = int(os.environ.get("SH17_FULL_EPOCHS", "50"))' in sources
+    assert 'EPOCHS = int(os.environ.get("SH17_EPOCHS", str(FULL_EPOCHS)))' in sources
+    assert 'EPOCH_LABEL = os.environ.get("SH17_EPOCH_LABEL", f"{EPOCHS}e")' in sources
     assert "build_benchmark_coco_subset" in sources
     assert "picodet_speed_benchmark_experiments" in sources
     assert "parse_picodet_speed_log" in sources
@@ -247,22 +249,22 @@ def test_picodet_helper_converts_yolo_manifests_to_coco_and_oversamples(tmp_path
 def test_picodet_config_generation_uses_sh17_dataset_and_variant_settings(tmp_path):
     from scripts.sh17_picodet_dataset import build_picodet_config_text, picodet_experiments
 
-    experiments = {experiment.name: experiment for experiment in picodet_experiments()}
+    experiments = {experiment.name: experiment for experiment in picodet_experiments(epoch_label="50e")}
     assert {
         name: experiment.config_file_name
         for name, experiment in experiments.items()
     } == {
-        "picodet_l_320_baseline_fast_20e": "picodet_l_320_fast_sh17.yml",
-        "picodet_l_640_scale_fast_20e": "picodet_l_640_fast_sh17.yml",
-        "picodet_l_640_oversample_fast_20e": "picodet_l_640_oversample_fast_sh17.yml",
-        "picodet_l_640_zoom_crop_fast_20e": "picodet_l_640_zoom_crop_fast_sh17.yml",
+        "picodet_l_320_baseline_fast_50e": "picodet_l_320_fast_sh17.yml",
+        "picodet_l_640_scale_fast_50e": "picodet_l_640_fast_sh17.yml",
+        "picodet_l_640_oversample_fast_50e": "picodet_l_640_oversample_fast_sh17.yml",
+        "picodet_l_640_zoom_crop_fast_50e": "picodet_l_640_zoom_crop_fast_sh17.yml",
     }
     config_text = build_picodet_config_text(
-        experiment=experiments["picodet_l_640_oversample_fast_20e"],
+        experiment=experiments["picodet_l_640_oversample_fast_50e"],
         dataset_dir=tmp_path / "dataset",
         output_dir=tmp_path / "runs",
         paddledet_root=tmp_path / "PaddleDetection",
-        epochs=20,
+        epochs=50,
         snapshot_epoch=5,
         worker_num=6,
         use_shared_memory=True,
@@ -270,13 +272,13 @@ def test_picodet_config_generation_uses_sh17_dataset_and_variant_settings(tmp_pa
 
     assert "picodet_l_640_coco_lcnet.yml" in config_text
     assert "num_classes: 17" in config_text
-    assert "epoch: 20" in config_text
+    assert "epoch: 50" in config_text
     assert "use_ema: true" in config_text
     assert "use_gpu: true" in config_text
     assert "snapshot_epoch: 5" in config_text
     assert "worker_num: 6" in config_text
     assert "use_shared_memory: true" in config_text
-    assert f"save_dir: {(tmp_path / 'runs' / 'picodet_l_640_oversample_fast_20e').as_posix()}" in config_text
+    assert f"save_dir: {(tmp_path / 'runs' / 'picodet_l_640_oversample_fast_50e').as_posix()}" in config_text
     assert "base_lr: 0.06" in config_text
     assert "batch_size: 12" in config_text
     assert "instances_train_oversampled.json" in config_text
@@ -285,7 +287,7 @@ def test_picodet_config_generation_uses_sh17_dataset_and_variant_settings(tmp_pa
     assert "RandomDistort" not in config_text
 
     cpu_config_text = build_picodet_config_text(
-        experiment=experiments["picodet_l_320_baseline_fast_20e"],
+        experiment=experiments["picodet_l_320_baseline_fast_50e"],
         dataset_dir=tmp_path / "dataset",
         output_dir=tmp_path / "runs",
         paddledet_root=tmp_path / "PaddleDetection",
@@ -294,15 +296,15 @@ def test_picodet_config_generation_uses_sh17_dataset_and_variant_settings(tmp_pa
     assert "use_gpu: false" in cpu_config_text
 
     zoom_config_text = build_picodet_config_text(
-        experiment=experiments["picodet_l_640_zoom_crop_fast_20e"],
+        experiment=experiments["picodet_l_640_zoom_crop_fast_50e"],
         dataset_dir=tmp_path / "dataset",
         output_dir=tmp_path / "runs",
         paddledet_root=tmp_path / "PaddleDetection",
-        epochs=20,
+        epochs=50,
         snapshot_epoch=5,
     )
     assert "BatchRandomResize: {target_size: [512, 544, 576, 608, 640, 672, 704, 736, 768]" in zoom_config_text
-    assert "picodet_l_640_zoom_crop_fast_20e" in zoom_config_text
+    assert "picodet_l_640_zoom_crop_fast_50e" in zoom_config_text
 
 
 def test_picodet_config_generation_supports_augmentation_profiles(tmp_path):
@@ -465,8 +467,8 @@ def test_picodet_analyzer_notebook_uses_pending_for_missing_real_metrics():
     sources = "\n".join("".join(cell.get("source", [])) for cell in payload["cells"])
 
     assert "pending" in sources
-    assert "picodet_l_640_zoom_crop_fast_20e" in sources
-    assert "picodet_l_640_zoom_crop_50e" not in sources
+    assert "picodet_l_640_zoom_crop_fast_50e" in sources
+    assert "picodet_l_640_zoom_crop_fast_20e" not in sources
     assert "summary_metrics.csv" in sources
     assert "per_class_metrics.csv" in sources
     assert "epochs_trained" in sources

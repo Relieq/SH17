@@ -378,15 +378,34 @@ def parse_picodet_speed_log(log_path: Path) -> dict[str, str | int]:
             "mean_batch_cost": "pending",
             "mean_data_cost": "pending",
             "mean_ips": "pending",
+            "data_cost_ratio": "pending",
+            "steady_batch_count": 0,
+            "steady_mean_batch_cost": "pending",
+            "steady_mean_data_cost": "pending",
+            "steady_mean_ips": "pending",
+            "steady_data_cost_ratio": "pending",
             "max_mem_allocated_mb": 0,
         }
 
+    steady_rows = rows[1:] if len(rows) > 1 else rows
+    mean_batch_cost = sum(row["batch_cost"] for row in rows) / len(rows)
+    mean_data_cost = sum(row["data_cost"] for row in rows) / len(rows)
+    steady_mean_batch_cost = sum(row["batch_cost"] for row in steady_rows) / len(steady_rows)
+    steady_mean_data_cost = sum(row["data_cost"] for row in steady_rows) / len(steady_rows)
     return {
         "profile_status": "real",
         "batch_count": len(rows),
-        "mean_batch_cost": f"{sum(row['batch_cost'] for row in rows) / len(rows):.6f}",
-        "mean_data_cost": f"{sum(row['data_cost'] for row in rows) / len(rows):.6f}",
+        "mean_batch_cost": f"{mean_batch_cost:.6f}",
+        "mean_data_cost": f"{mean_data_cost:.6f}",
         "mean_ips": f"{sum(row['ips'] for row in rows) / len(rows):.6f}",
+        "data_cost_ratio": f"{mean_data_cost / mean_batch_cost:.6f}" if mean_batch_cost else "pending",
+        "steady_batch_count": len(steady_rows),
+        "steady_mean_batch_cost": f"{steady_mean_batch_cost:.6f}",
+        "steady_mean_data_cost": f"{steady_mean_data_cost:.6f}",
+        "steady_mean_ips": f"{sum(row['ips'] for row in steady_rows) / len(steady_rows):.6f}",
+        "steady_data_cost_ratio": (
+            f"{steady_mean_data_cost / steady_mean_batch_cost:.6f}" if steady_mean_batch_cost else "pending"
+        ),
         "max_mem_allocated_mb": max(row["max_mem_allocated_mb"] for row in rows),
     }
 

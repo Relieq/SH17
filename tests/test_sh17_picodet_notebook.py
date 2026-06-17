@@ -427,6 +427,11 @@ def test_picodet_speed_log_parser_accepts_logs_without_memory_field(tmp_path):
     assert metrics["mean_data_cost"] == "2.817650"
     assert metrics["mean_ips"] == "1.039850"
     assert metrics["max_mem_allocated_mb"] == 0
+    assert metrics["steady_batch_count"] == 1
+    assert metrics["steady_mean_batch_cost"] == "17.553900"
+    assert metrics["steady_mean_data_cost"] == "0.000100"
+    assert metrics["steady_mean_ips"] == "1.367200"
+    assert metrics["steady_data_cost_ratio"] == "0.000006"
 
 
 def test_picodet_benchmark_configs_use_shared_annotation_dir(tmp_path):
